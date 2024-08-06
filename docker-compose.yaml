@@ -2,6 +2,7 @@ services:
   lobechat-db:
     image: lobehub/lobe-chat-database:v1.9.3
     restart: always
+    env_file: .env
     ports:
       - 13210:3210
     networks:
@@ -13,6 +14,7 @@ services:
   pg:
     image: postgres:15-alpine
     restart: always
+    env_file: .env
     ports:
       - 15432:5432
     networks:
