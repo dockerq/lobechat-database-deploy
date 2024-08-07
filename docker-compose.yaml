@@ -4,7 +4,7 @@ services:
     restart: always
     env_file: .env
     ports:
-      - 13210:3210
+      - 3210:3210
     networks:
       - lobedb
     depends_on:
@@ -16,7 +16,7 @@ services:
     restart: always
     env_file: .env
     ports:
-      - 15432:5432
+      - 5432:5432
     networks:
       - lobedb
     environment:
