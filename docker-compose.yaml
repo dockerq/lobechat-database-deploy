@@ -1,0 +1,35 @@
+services:
+  lobechat-db:
+    image: lobehub/lobe-chat-database:v1.9.3
+    restart: always
+    env_file: .env
+    ports:
+      - 3210:3210
+    networks:
+      - lobedb
+    depends_on:
+      - pg
+
+  # The postgres database.
+  pg:
+    image: postgres:15-alpine
+    restart: always
+    env_file: .env
+    ports:
+      - 5432:5432
+    networks:
+      - lobedb
+    environment:
+      PGUSER: ${PGUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lobechat666}
+      POSTGRES_DB: ${POSTGRES_DB:-lobechat}
+      PGDATA: ${PGDATA:-/var/lib/postgresql/data/pgdata}
+    volumes:
+      - ./volumes/db/data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+networks:
+  lobedb:
