@@ -2,3 +2,7 @@
 local/.env
 local/data
 local/s3_data
+
+localv2/.env
+localv2/data
+localv2/s3_data

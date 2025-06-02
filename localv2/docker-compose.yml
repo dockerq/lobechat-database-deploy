@@ -1,0 +1,116 @@
+name: lobe-chat-database
+services:
+  network-service:
+    image: alpine:3.20
+    container_name: lobedb-network
+    ports:
+      - "${MINIO_PORT}:${MINIO_PORT}" # MinIO API
+      - "9001:9001" # MinIO Console
+      - "${LOBE_PORT}:3210" # LobeChat
+    command: tail -f /dev/null
+    networks:
+      - lobedb-network
+
+  postgresql:
+    image: pgvector/pgvector:pg16
+    container_name: lobedb-postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - "./data:/var/lib/postgresql/data"
+    environment:
+      - "POSTGRES_DB=${LOBE_DB_NAME}"
+      - "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - lobedb-network
+
+  minio:
+    image: minio/minio:RELEASE.2025-02-03T21-03-04Z
+    container_name: lobedb-minio
+    network_mode: "service:network-service"
+    volumes:
+      - "./s3_data:/etc/minio/data"
+    environment:
+      - "MINIO_API_CORS_ALLOW_ORIGIN=*"
+    env_file:
+      - .env
+    restart: always
+    entrypoint: >
+      /bin/sh -c "
+        minio server /etc/minio/data --address ':${MINIO_PORT}' --console-address ':9001' &
+        MINIO_PID=\$!
+        while ! curl -s http://localhost:${MINIO_PORT}/minio/health/live; do
+          echo 'Waiting for MinIO to start...'
+          sleep 1
+        done
+        sleep 5
+        mc alias set myminio http://localhost:${MINIO_PORT} ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}
+        echo 'Creating bucket ${MINIO_LOBE_BUCKET}'
+        mc mb myminio/${MINIO_LOBE_BUCKET}
+        wait \$MINIO_PID
+      "
+
+  casdoor:
+    image: casbin/casdoor:v1.822.0
+    container_name: lobedb-casdoor
+    entrypoint: /bin/sh -c './server --createDatabase=true'
+    ports:
+      - "${CASDOOR_PORT}:8000" # Casdoor
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      RUNNING_IN_DOCKER: "true"
+      driverName: "postgres"
+      dataSourceName: "user=postgres password=${POSTGRES_PASSWORD} host=postgresql port=5432 sslmode=disable dbname=casdoor"
+      runmode: "dev"
+    volumes:
+      - ./init_data.json:/init_data.json
+    networks:
+      - lobedb-network
+    env_file:
+      - .env
+
+  lobe:
+    image: lobehub/lobe-chat-database:1.62.3
+    container_name: lobedb-chat
+    network_mode: "service:network-service"
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      network-service:
+        condition: service_started
+      minio:
+        condition: service_started
+      casdoor:
+        condition: service_started
+
+    environment:
+      - "KEY_VAULTS_SECRET=Kix2wcUONd4CX51E/ZPAd36BqM4wzJgKjPtz2sGztqQ="
+      - "NEXT_AUTH_SECRET=NX2kaPE923dt6BL2U8e9oSre5RfoT7hg"
+      - "DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgresql:5432/${LOBE_DB_NAME}"
+      - "S3_BUCKET=${MINIO_LOBE_BUCKET}"
+      - "S3_ENABLE_PATH_STYLE=1"
+      - "S3_ACCESS_KEY=${MINIO_ROOT_USER}"
+      - "S3_ACCESS_KEY_ID=${MINIO_ROOT_USER}"
+      - "S3_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}"
+      - "LLM_VISION_IMAGE_USE_BASE64=1"
+    env_file:
+      - .env
+    restart: always
+
+volumes:
+  data:
+    driver: local
+  s3_data:
+    driver: local
+
+networks:
+  lobedb-network:
+    driver: bridge
